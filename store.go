@@ -59,7 +59,12 @@ func (s *Store) Get(id int64) (Bookmark, bool) {
 	defer s.mu.RUnlock()
 
 	bookmark, exists := s.bookmarks[id]
-	return bookmark, exists
+
+	if !exists {
+		return Bookmark{}, false
+	}
+	bookmark.Tags = slices.Clone(bookmark.Tags)
+	return bookmark, true
 }
 
 func (s *Store) Update(id int64, url, title string, tags []string) (Bookmark, bool) {

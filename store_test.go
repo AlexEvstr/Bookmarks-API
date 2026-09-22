@@ -2,6 +2,7 @@ package bookmarks
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 )
@@ -136,5 +137,68 @@ func TestStoreListCopiesTags(t *testing.T) {
 
 	if bookmarks2[0].Tags[0] != "go" {
 		t.Errorf("List() did not copy tags, got %v, want %v", bookmarks2[0].Tags[0], "go")
+	}
+}
+
+func TestStoreGetExisting(t *testing.T) {
+	store := NewStore()
+	bookmark := store.Create("https://example.com", "Example", []string{"go"})
+
+	got, ok := store.Get(bookmark.ID)
+	if !ok {
+		t.Fatalf("Get() = _, false, want true")
+	}
+
+	if got.ID != bookmark.ID {
+		t.Errorf("Get() ID = %v, want %v", got.ID, bookmark.ID)
+	}
+	if got.URL != bookmark.URL {
+		t.Errorf("Get() URL = %v, want %v", got.URL, bookmark.URL)
+	}
+	if got.Title != bookmark.Title {
+		t.Errorf("Get() Title = %v, want %v", got.Title, bookmark.Title)
+	}
+	if !slices.Equal(got.Tags, bookmark.Tags) {
+		t.Errorf("Get() Tags = %v, want %v", got.Tags, bookmark.Tags)
+	}
+	if !got.CreatedAt.Equal(bookmark.CreatedAt) {
+		t.Errorf("Get() CreatedAt = %v, want %v", got.CreatedAt, bookmark.CreatedAt)
+	}
+	if !got.UpdatedAt.Equal(bookmark.UpdatedAt) {
+		t.Errorf("Get() UpdatedAt = %v, want %v", got.UpdatedAt, bookmark.UpdatedAt)
+	}
+}
+
+func TestStoreGetMissing(t *testing.T) {
+	store := NewStore()
+	got, ok := store.Get(999)
+	if ok {
+		t.Fatalf("Get() = %v, true, want false", got)
+	}
+	if !reflect.DeepEqual(got, Bookmark{}) {
+		t.Errorf("Get() bookmark = %v, want zero Bookmark", got)
+	}
+}
+
+func TestStoreGetCopiesTags(t *testing.T) {
+	store := NewStore()
+	bookmark := store.Create("https://example.com", "go", []string{"go"})
+
+	got, ok := store.Get(bookmark.ID)
+	if !ok {
+		t.Fatalf("Get() = _, false, want true")
+	}
+
+	// Modify the tags of the returned bookmark
+	got.Tags[0] = "modified"
+
+	// Retrieve the bookmark again
+	got2, ok := store.Get(bookmark.ID)
+	if !ok {
+		t.Fatalf("Get() = _, false, want true")
+	}
+
+	if got2.Tags[0] != "go" {
+		t.Errorf("Get() did not copy tags, got %v, want %v", got2.Tags[0], "go")
 	}
 }
