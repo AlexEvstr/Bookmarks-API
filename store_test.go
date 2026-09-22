@@ -1,6 +1,7 @@
 package bookmarks
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 )
@@ -79,5 +80,61 @@ func TestStoreCreateCopiesTags(t *testing.T) {
 
 	if !slices.Equal(bookmark.Tags, want) {
 		t.Errorf("Create() Tags = %v, want %v", bookmark.Tags, want)
+	}
+}
+
+func TestStoreListEmpty(t *testing.T) {
+	bookmarks := NewStore().List()
+
+	if bookmarks == nil {
+		t.Errorf("List() = nil, want empty slice")
+	}
+
+	if len(bookmarks) != 0 {
+		t.Errorf("List() = %v, want empty slice", bookmarks)
+	}
+}
+
+func TestStoreListReturnsBookmarksByID(t *testing.T) {
+	store := NewStore()
+	const count = 20
+	for i := 0; i < count; i++ {
+		store.Create(
+			fmt.Sprintf("https://example.com/%d", i),
+			fmt.Sprintf("Example %d", i),
+			[]string{fmt.Sprintf("tag%d", i)},
+		)
+	}
+
+	bookmarks := store.List()
+
+	if len(bookmarks) != count {
+		t.Fatalf("List() = %v, want %d bookmarks", bookmarks, count)
+	}
+
+	for i := range bookmarks {
+		if bookmarks[i].ID != int64(i+1) {
+			t.Errorf("List() bookmark at index %d has ID = %v, want %v", i, bookmarks[i].ID, int64(i+1))
+		}
+	}
+}
+
+func TestStoreListCopiesTags(t *testing.T) {
+	store := NewStore()
+	_ = store.Create("https://example.com", "Example", []string{"go"})
+	bookmarks := store.List()
+
+	if len(bookmarks) != 1 {
+		t.Fatalf("List() = %v, want 1 bookmark", bookmarks)
+	}
+
+	// Modify the tags of the returned bookmark
+	bookmarks[0].Tags[0] = "modified"
+
+	// Retrieve the bookmarks again
+	bookmarks2 := store.List()
+
+	if bookmarks2[0].Tags[0] != "go" {
+		t.Errorf("List() did not copy tags, got %v, want %v", bookmarks2[0].Tags[0], "go")
 	}
 }
