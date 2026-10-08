@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"sync"
 	"testing"
 )
 
@@ -332,5 +333,35 @@ func TestStoreDeleteMissing(t *testing.T) {
 
 	if deleted := store.Delete(999); deleted {
 		t.Error("Delete() = true, want false")
+	}
+}
+
+func TestStoreConcurrentCreate(t *testing.T) {
+	store := NewStore()
+	const count = 100
+
+	var waitGroup sync.WaitGroup
+	for i := 0; i < count; i++ {
+		waitGroup.Add(1)
+		go func(i int) {
+			defer waitGroup.Done()
+			store.Create(
+				fmt.Sprintf("https://example.com/%d", i),
+				fmt.Sprintf("Example %d", i),
+				nil,
+			)
+		}(i)
+	}
+	waitGroup.Wait()
+
+	bookmarks := store.List()
+	if len(bookmarks) != count {
+		t.Fatalf("List() returned %d bookmarks, want %d", len(bookmarks), count)
+	}
+	for i, bookmark := range bookmarks {
+		wantID := int64(i + 1)
+		if bookmark.ID != wantID {
+			t.Errorf("bookmark at index %d has ID %d, want %d", i, bookmark.ID, wantID)
+		}
 	}
 }

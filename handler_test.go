@@ -187,6 +187,9 @@ func TestHandlerErrors(t *testing.T) {
 
 func decodeResponseJSON(t *testing.T, response *httptest.ResponseRecorder, destination any) {
 	t.Helper()
+	if contentType := response.Header().Get("Content-Type"); contentType != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", contentType)
+	}
 	if err := json.NewDecoder(response.Body).Decode(destination); err != nil {
 		t.Fatalf("decode response JSON: %v; body = %s", err, response.Body.String())
 	}
