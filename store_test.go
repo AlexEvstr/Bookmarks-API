@@ -84,6 +84,21 @@ func TestStoreCreateCopiesTags(t *testing.T) {
 	}
 }
 
+func TestStoreCreateCopiesReturnedTags(t *testing.T) {
+	store := NewStore()
+	created := store.Create("https://example.com", "Example", []string{"go"})
+
+	created.Tags[0] = "modified"
+
+	stored, ok := store.Get(created.ID)
+	if !ok {
+		t.Fatal("Get() after Create() = _, false, want true")
+	}
+	if !slices.Equal(stored.Tags, []string{"go"}) {
+		t.Errorf("stored Tags = %v, want %v", stored.Tags, []string{"go"})
+	}
+}
+
 func TestStoreListEmpty(t *testing.T) {
 	bookmarks := NewStore().List()
 
@@ -288,5 +303,34 @@ func TestStoreUpdateCopiesReturnedTags(t *testing.T) {
 	}
 	if !slices.Equal(stored.Tags, []string{"go"}) {
 		t.Errorf("stored Tags = %v, want %v", stored.Tags, []string{"go"})
+	}
+}
+
+func TestStoreDeleteExisting(t *testing.T) {
+	store := NewStore()
+	first := store.Create("https://example.com/1", "First", nil)
+	second := store.Create("https://example.com/2", "Second", nil)
+
+	if deleted := store.Delete(first.ID); !deleted {
+		t.Fatal("Delete() = false, want true")
+	}
+	if got, ok := store.Get(first.ID); ok {
+		t.Errorf("Get() deleted bookmark = %v, true, want false", got)
+	}
+	if got, ok := store.Get(second.ID); !ok || got.ID != second.ID {
+		t.Errorf("Get() retained bookmark = %v, %v, want ID %d and true", got, ok, second.ID)
+	}
+
+	third := store.Create("https://example.com/3", "Third", nil)
+	if third.ID != 3 {
+		t.Errorf("Create() after Delete() ID = %d, want 3", third.ID)
+	}
+}
+
+func TestStoreDeleteMissing(t *testing.T) {
+	store := NewStore()
+
+	if deleted := store.Delete(999); deleted {
+		t.Error("Delete() = true, want false")
 	}
 }

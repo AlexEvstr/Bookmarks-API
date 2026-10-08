@@ -36,6 +36,7 @@ func (s *Store) Create(url, title string, tags []string) Bookmark {
 	}
 	s.bookmarks[bookmark.ID] = bookmark
 	s.nextID++
+	bookmark.Tags = slices.Clone(bookmark.Tags)
 	return bookmark
 }
 
