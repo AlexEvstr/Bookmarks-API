@@ -202,3 +202,91 @@ func TestStoreGetCopiesTags(t *testing.T) {
 		t.Errorf("Get() did not copy tags, got %v, want %v", got2.Tags[0], "go")
 	}
 }
+
+func TestStoreUpdateExisting(t *testing.T) {
+	store := NewStore()
+	created := store.Create("https://example.com", "Example", []string{"old"})
+
+	updated, ok := store.Update(created.ID, "https://go.dev", "Go", []string{"go", "docs"})
+	if !ok {
+		t.Fatal("Update() = _, false, want true")
+	}
+
+	if updated.ID != created.ID {
+		t.Errorf("Update() ID = %d, want %d", updated.ID, created.ID)
+	}
+	if updated.URL != "https://go.dev" {
+		t.Errorf("Update() URL = %q, want %q", updated.URL, "https://go.dev")
+	}
+	if updated.Title != "Go" {
+		t.Errorf("Update() Title = %q, want %q", updated.Title, "Go")
+	}
+	if !slices.Equal(updated.Tags, []string{"go", "docs"}) {
+		t.Errorf("Update() Tags = %v, want %v", updated.Tags, []string{"go", "docs"})
+	}
+	if !updated.CreatedAt.Equal(created.CreatedAt) {
+		t.Errorf("Update() CreatedAt = %v, want %v", updated.CreatedAt, created.CreatedAt)
+	}
+	if !updated.UpdatedAt.After(created.UpdatedAt) {
+		t.Errorf("Update() UpdatedAt = %v, want a time after %v", updated.UpdatedAt, created.UpdatedAt)
+	}
+
+	stored, ok := store.Get(created.ID)
+	if !ok {
+		t.Fatal("Get() after Update() = _, false, want true")
+	}
+	if stored.URL != updated.URL || stored.Title != updated.Title || !slices.Equal(stored.Tags, updated.Tags) {
+		t.Errorf("Get() after Update() = %v, want updated bookmark %v", stored, updated)
+	}
+}
+
+func TestStoreUpdateMissing(t *testing.T) {
+	store := NewStore()
+
+	got, ok := store.Update(999, "https://go.dev", "Go", []string{"go"})
+	if ok {
+		t.Fatalf("Update() = %v, true, want false", got)
+	}
+	if !reflect.DeepEqual(got, Bookmark{}) {
+		t.Errorf("Update() bookmark = %v, want zero Bookmark", got)
+	}
+}
+
+func TestStoreUpdateCopiesInputTags(t *testing.T) {
+	store := NewStore()
+	created := store.Create("https://example.com", "Example", nil)
+	tags := []string{"go"}
+
+	_, ok := store.Update(created.ID, "https://go.dev", "Go", tags)
+	if !ok {
+		t.Fatal("Update() = _, false, want true")
+	}
+	tags[0] = "modified"
+
+	stored, ok := store.Get(created.ID)
+	if !ok {
+		t.Fatal("Get() after Update() = _, false, want true")
+	}
+	if !slices.Equal(stored.Tags, []string{"go"}) {
+		t.Errorf("stored Tags = %v, want %v", stored.Tags, []string{"go"})
+	}
+}
+
+func TestStoreUpdateCopiesReturnedTags(t *testing.T) {
+	store := NewStore()
+	created := store.Create("https://example.com", "Example", nil)
+
+	updated, ok := store.Update(created.ID, "https://go.dev", "Go", []string{"go"})
+	if !ok {
+		t.Fatal("Update() = _, false, want true")
+	}
+	updated.Tags[0] = "modified"
+
+	stored, ok := store.Get(created.ID)
+	if !ok {
+		t.Fatal("Get() after Update() = _, false, want true")
+	}
+	if !slices.Equal(stored.Tags, []string{"go"}) {
+		t.Errorf("stored Tags = %v, want %v", stored.Tags, []string{"go"})
+	}
+}

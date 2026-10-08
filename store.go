@@ -81,6 +81,7 @@ func (s *Store) Update(id int64, url, title string, tags []string) (Bookmark, bo
 	bookmark.Tags = slices.Clone(tags)
 	bookmark.UpdatedAt = time.Now()
 	s.bookmarks[id] = bookmark
+	bookmark.Tags = slices.Clone(bookmark.Tags)
 	return bookmark, true
 }
 
