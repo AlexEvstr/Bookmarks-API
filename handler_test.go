@@ -185,6 +185,138 @@ func TestHandlerErrors(t *testing.T) {
 	}
 }
 
+func TestHandlerRouteErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+		wantAllow  string
+	}{
+		{name: "unsupported collection method", method: http.MethodPatch, path: "/bookmarks", wantStatus: http.StatusMethodNotAllowed, wantAllow: "GET, HEAD, POST"},
+		{name: "unsupported item method", method: http.MethodPost, path: "/bookmarks/1", wantStatus: http.StatusMethodNotAllowed, wantAllow: "GET, HEAD, PUT, DELETE"},
+		{name: "unknown route", method: http.MethodGet, path: "/unknown", wantStatus: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			NewHandler(NewStore()).ServeHTTP(response, httptest.NewRequest(tt.method, tt.path, nil))
+
+			if response.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body = %s", response.Code, tt.wantStatus, response.Body.String())
+			}
+			if got := response.Header().Get("Allow"); got != tt.wantAllow {
+				t.Errorf("Allow = %q, want %q", got, tt.wantAllow)
+			}
+			var apiError errorResponse
+			decodeResponseJSON(t, response, &apiError)
+			if apiError.Error == "" {
+				t.Error("error response has an empty error message")
+			}
+		})
+	}
+}
+
+func TestHandlerHealthz(t *testing.T) {
+	response := httptest.NewRecorder()
+	NewHandler(NewStore()).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	decodeResponseJSON(t, response, &body)
+	if body.Status != "ok" {
+		t.Errorf("status body = %q, want ok", body.Status)
+	}
+}
+
+func TestHandlerBookmarkInputValidation(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantURL    string
+		wantTitle  string
+	}{
+		{name: "trim URL and title", body: `{"url":"  https://go.dev/docs  ","title":"  Go docs  "}`, wantStatus: http.StatusCreated, wantURL: "https://go.dev/docs", wantTitle: "Go docs"},
+		{name: "URL without scheme", body: `{"url":"go.dev/docs","title":"Go"}`, wantStatus: http.StatusBadRequest},
+		{name: "unsupported scheme", body: `{"url":"ftp://go.dev/docs","title":"Go"}`, wantStatus: http.StatusBadRequest},
+		{name: "URL without host", body: `{"url":"https:///docs","title":"Go"}`, wantStatus: http.StatusBadRequest},
+		{name: "URL with port but no hostname", body: `{"url":"https://:8080/docs","title":"Go"}`, wantStatus: http.StatusBadRequest},
+		{name: "valid HTTP URL", body: `{"url":"http://example.com","title":"Example"}`, wantStatus: http.StatusCreated, wantURL: "http://example.com", wantTitle: "Example"},
+		{name: "valid HTTPS URL", body: `{"url":"https://example.com/path?q=1","title":"Example"}`, wantStatus: http.StatusCreated, wantURL: "https://example.com/path?q=1", wantTitle: "Example"},
+		{name: "empty tags allowed", body: `{"url":"https://example.com","title":"Example","tags":[]}`, wantStatus: http.StatusCreated, wantURL: "https://example.com", wantTitle: "Example"},
+		{name: "empty tag rejected", body: `{"url":"https://example.com","title":"Example","tags":[""]}`, wantStatus: http.StatusBadRequest},
+		{name: "blank tag rejected", body: `{"url":"https://example.com","title":"Example","tags":["go","  "]}`, wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewStore()
+			response := httptest.NewRecorder()
+			NewHandler(store).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/bookmarks", strings.NewReader(tt.body)))
+
+			if response.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body = %s", response.Code, tt.wantStatus, response.Body.String())
+			}
+			if tt.wantStatus == http.StatusBadRequest {
+				var apiError errorResponse
+				decodeResponseJSON(t, response, &apiError)
+				if apiError.Error == "" {
+					t.Error("error response has an empty error message")
+				}
+				if got := store.List(); len(got) != 0 {
+					t.Errorf("invalid input saved %d bookmarks, want none", len(got))
+				}
+				return
+			}
+
+			var created Bookmark
+			decodeResponseJSON(t, response, &created)
+			if created.URL != tt.wantURL || created.Title != tt.wantTitle {
+				t.Errorf("created URL/title = %q/%q, want %q/%q", created.URL, created.Title, tt.wantURL, tt.wantTitle)
+			}
+			stored, found := store.Get(created.ID)
+			if !found || stored.URL != tt.wantURL || stored.Title != tt.wantTitle {
+				t.Errorf("stored bookmark = %+v, found = %v", stored, found)
+			}
+		})
+	}
+}
+
+func TestHandlerUpdateValidatesBeforeSaving(t *testing.T) {
+	store := NewStore()
+	created := store.Create("https://example.com/old", "Old", nil)
+	handler := NewHandler(store)
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantURL    string
+		wantTitle  string
+	}{
+		{name: "invalid URL preserves bookmark", body: `{"url":"ftp://example.com","title":"New"}`, wantStatus: http.StatusBadRequest, wantURL: created.URL, wantTitle: created.Title},
+		{name: "trim before update", body: `{"url":"  http://example.com/new  ","title":"  New  "}`, wantStatus: http.StatusOK, wantURL: "http://example.com/new", wantTitle: "New"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/bookmarks/1", strings.NewReader(tt.body)))
+			if response.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body = %s", response.Code, tt.wantStatus, response.Body.String())
+			}
+			stored, found := store.Get(created.ID)
+			if !found || stored.URL != tt.wantURL || stored.Title != tt.wantTitle {
+				t.Errorf("stored URL/title = %q/%q, found = %v; want %q/%q", stored.URL, stored.Title, found, tt.wantURL, tt.wantTitle)
+			}
+		})
+	}
+}
+
 func decodeResponseJSON(t *testing.T, response *httptest.ResponseRecorder, destination any) {
 	t.Helper()
 	if contentType := response.Header().Get("Content-Type"); contentType != "application/json" {
